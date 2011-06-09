@@ -121,8 +121,6 @@ my %urls_to_download = ();
 
 my %stat_cache = ();
 
-my %skipclean = ();
-
 # --------------------------------------------------------------------------- #
 sub process_directory {
   my $dir             = shift;
@@ -296,6 +294,8 @@ sub _stat {
 }
 
 # --------------------------------------------------------------------------- #
+my %skipclean = ();
+
 sub read_config {
   my $cf        = shift;    # config file
   my %clean_dir = ();
@@ -357,6 +357,157 @@ sub read_config {
 }
 
 # --------------------------------------------------------------------------- #
+sub need_update {
+  my $filename       = shift;
+  my $size_on_server = shift;
+
+  my ( undef, undef, undef, undef, undef, undef, undef, $size ) =
+    _stat($filename);
+
+  return 1 unless ($size);
+  return 0 if $size_on_server == $size;
+  return 1;
+}
+
+# --------------------------------------------------------------------------- #
+sub remove_spaces($) {
+  my $hashref = shift;
+
+  foreach ( keys %{$hashref} ) {
+    while ( substr( $hashref->{$_}, 0, 1 ) eq ' ' ) {
+      substr( $hashref->{$_}, 0, 1 ) = '';
+    }
+  }
+}
+
+# --------------------------------------------------------------------------- #
+sub sanitise_uri {
+  my $uri = shift;
+  $uri =~ s[^(\w+)://][];
+  $uri =~ s/^([^@]+)?@?// if $uri =~ /@/;
+  $uri =~ s&:\d+/&/&;                       # and port information
+  $uri =~ s/~/\%7E/g if get_variable("_tilde");
+  return $uri;
+}
+
+# --------------------------------------------------------------------------- #
+sub proceed_index_gz {
+  my $uri   = shift;
+  my $index = shift;
+  my ( $path, $package, $mirror, $files ) = '';
+
+  $path = sanitise_uri($uri);
+  local $/ = "\n\n";
+  $mirror = get_variable("mirror_path") . "/" . $path;
+
+  if ( $index =~ s/\.gz$// ) {
+    system("gunzip < $path/$index.gz > $path/$index");
+  }
+
+  open STREAM, "<$path/$index"
+    or die("apt-mirror: can't open index in proceed_index_gz");
+
+  while ( $package = <STREAM> ) {
+    local $/ = "\n";
+    chomp $package;
+    my ( undef, %lines ) = split( /^([\w\-]+:)/m, $package );
+
+    $lines{"Directory:"} = "" unless defined $lines{"Directory:"};
+    chomp(%lines);
+    remove_spaces( \%lines );
+
+    if ( exists $lines{"Filename:"} ) {    # Packages index
+      $skipclean{ remove_double_slashes( $path . "/" . $lines{"Filename:"} ) } =
+        1;
+      print FILES_ALL remove_double_slashes( $path . "/" . $lines{"Filename:"} )
+        . "\n";
+      print FILES_MD5 $lines{"MD5sum:"} . "  "
+        . remove_double_slashes( $path . "/" . $lines{"Filename:"} ) . "\n";
+      if ( need_update( $mirror . "/" . $lines{"Filename:"}, $lines{"Size:"} ) )
+      {
+        print FILES_NEW remove_double_slashes(
+          $uri . "/" . $lines{"Filename:"} )
+          . "\n";
+        add_url_to_download( $uri . "/" . $lines{"Filename:"},
+          $lines{"Size:"} );
+      }
+    }
+    else {    # Sources index
+      foreach ( split( /\n/, $lines{"Files:"} ) ) {
+        next if $_ eq '';
+        my @file = split;
+        die("apt-mirror: invalid Sources format") if @file != 3;
+        $skipclean{
+          remove_double_slashes(
+            $path . "/" . $lines{"Directory:"} . "/" . $file[2]
+          )
+          }
+          = 1;
+        print FILES_ALL remove_double_slashes(
+          $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
+          . "\n";
+        print FILES_MD5 $file[0] . "  "
+          . remove_double_slashes(
+          $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
+          . "\n";
+        if (
+          need_update(
+            $mirror . "/" . $lines{"Directory:"} . "/" . $file[2],
+            $file[1]
+          )
+          )
+        {
+          print FILES_NEW remove_double_slashes(
+            $uri . "/" . $lines{"Directory:"} . "/" . $file[2] )
+            . "\n";
+          add_url_to_download(
+            $uri . "/" . $lines{"Directory:"} . "/" . $file[2],
+            $file[1] );
+        }
+      }
+    }
+  }
+
+  close STREAM;
+}
+
+# --------------------------------------------------------------------------- #
+sub copy_file {
+  my ( $from, $to ) = @_;
+  my $dir = dirname($to);
+  return unless -f $from;
+  mkpath($dir) unless -d $dir;
+  unless ( copy( $from, $to ) ) {
+    warn("apt-mirror: can't copy $from to $to");
+    return;
+  }
+  my ( $atime, $mtime ) = ( stat($from) )[ 8, 9 ];
+  utime( $atime, $mtime, $to ) or die("apt-mirror: can't utime $to");
+}
+
+# --------------------------------------------------------------------------- #
+sub process_symlink {
+  return 1;    # symlinks are always needed
+}
+
+# --------------------------------------------------------------------------- #
+my $unnecessary_bytes = 0;
+
+sub process_file {
+  my $file = shift;
+
+  $file =~ s[~][%7E]g if get_variable("_tilde");
+  return 1 if $skipclean{$file};
+  push @rm_files, sanitise_uri($file);
+  my (
+    undef, undef, undef, undef, undef, undef, undef,
+    $size, undef, undef, undef, undef, $blocks
+  ) = stat($file);
+  $unnecessary_bytes += $blocks * 512;
+  return 0;
+}
+
+# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
 #handling command line arguments.
@@ -374,7 +525,6 @@ chomp $config_variables{"defaultarch"};
 
 my %clean_directory = read_config($config_file);
 
-######################################################################################
 ## Create the 3 needed directories if they don't exist yet
 my @needed_directories = (
   get_variable("mirror_path"),
@@ -473,116 +623,6 @@ open FILES_NEW, ">" . get_variable("var_path") . "/NEW"
 open FILES_MD5, ">" . get_variable("var_path") . "/MD5"
   or die("apt-mirror: can't write to intermediate file (MD5)");
 
-sub need_update {
-  my $filename       = shift;
-  my $size_on_server = shift;
-
-  my ( undef, undef, undef, undef, undef, undef, undef, $size ) =
-    _stat($filename);
-
-  return 1 unless ($size);
-  return 0 if $size_on_server == $size;
-  return 1;
-}
-
-sub remove_spaces($) {
-  my $hashref = shift;
-  foreach ( keys %{$hashref} ) {
-    while ( substr( $hashref->{$_}, 0, 1 ) eq ' ' ) {
-      substr( $hashref->{$_}, 0, 1 ) = '';
-    }
-  }
-}
-
-sub sanitise_uri {
-  my $uri = shift;
-  $uri =~ s[^(\w+)://][];
-  $uri =~ s/^([^@]+)?@?// if $uri =~ /@/;
-  $uri =~ s&:\d+/&/&;                       # and port information
-  $uri =~ s/~/\%7E/g if get_variable("_tilde");
-  return $uri;
-}
-
-sub proceed_index_gz {
-  my $uri   = shift;
-  my $index = shift;
-  my ( $path, $package, $mirror, $files ) = '';
-
-  $path = sanitise_uri($uri);
-  local $/ = "\n\n";
-  $mirror = get_variable("mirror_path") . "/" . $path;
-
-  if ( $index =~ s/\.gz$// ) {
-    system("gunzip < $path/$index.gz > $path/$index");
-  }
-
-  open STREAM, "<$path/$index"
-    or die("apt-mirror: can't open index in proceed_index_gz");
-
-  while ( $package = <STREAM> ) {
-    local $/ = "\n";
-    chomp $package;
-    my ( undef, %lines ) = split( /^([\w\-]+:)/m, $package );
-
-    $lines{"Directory:"} = "" unless defined $lines{"Directory:"};
-    chomp(%lines);
-    remove_spaces( \%lines );
-
-    if ( exists $lines{"Filename:"} ) {    # Packages index
-      $skipclean{ remove_double_slashes( $path . "/" . $lines{"Filename:"} ) } =
-        1;
-      print FILES_ALL remove_double_slashes( $path . "/" . $lines{"Filename:"} )
-        . "\n";
-      print FILES_MD5 $lines{"MD5sum:"} . "  "
-        . remove_double_slashes( $path . "/" . $lines{"Filename:"} ) . "\n";
-      if ( need_update( $mirror . "/" . $lines{"Filename:"}, $lines{"Size:"} ) )
-      {
-        print FILES_NEW remove_double_slashes(
-          $uri . "/" . $lines{"Filename:"} )
-          . "\n";
-        add_url_to_download( $uri . "/" . $lines{"Filename:"},
-          $lines{"Size:"} );
-      }
-    }
-    else {    # Sources index
-      foreach ( split( /\n/, $lines{"Files:"} ) ) {
-        next if $_ eq '';
-        my @file = split;
-        die("apt-mirror: invalid Sources format") if @file != 3;
-        $skipclean{
-          remove_double_slashes(
-            $path . "/" . $lines{"Directory:"} . "/" . $file[2]
-          )
-          }
-          = 1;
-        print FILES_ALL remove_double_slashes(
-          $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
-          . "\n";
-        print FILES_MD5 $file[0] . "  "
-          . remove_double_slashes(
-          $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
-          . "\n";
-        if (
-          need_update(
-            $mirror . "/" . $lines{"Directory:"} . "/" . $file[2],
-            $file[1]
-          )
-          )
-        {
-          print FILES_NEW remove_double_slashes(
-            $uri . "/" . $lines{"Directory:"} . "/" . $file[2] )
-            . "\n";
-          add_url_to_download(
-            $uri . "/" . $lines{"Directory:"} . "/" . $file[2],
-            $file[1] );
-        }
-      }
-    }
-  }
-
-  close STREAM;
-}
-
 print "Proceed indexes: [";
 
 foreach (@config_sources) {
@@ -643,19 +683,6 @@ download_urls( "archive", sort keys %urls_to_download );
 ######################################################################################
 ## Copy skel to main archive
 
-sub copy_file {
-  my ( $from, $to ) = @_;
-  my $dir = dirname($to);
-  return unless -f $from;
-  mkpath($dir) unless -d $dir;
-  unless ( copy( $from, $to ) ) {
-    warn("apt-mirror: can't copy $from to $to");
-    return;
-  }
-  my ( $atime, $mtime ) = ( stat($from) )[ 8, 9 ];
-  utime( $atime, $mtime, $to ) or die("apt-mirror: can't utime $to");
-}
-
 foreach (@index_urls) {
   die("apt-mirror: invalid url in index_urls") unless s[^(\w+)://][];
   copy_file(
@@ -674,25 +701,6 @@ foreach (@index_urls) {
 
 ######################################################################################
 ## Make cleaning script
-
-my $unnecessary_bytes = 0;
-
-sub process_symlink {
-  return 1;    # symlinks are always needed
-}
-
-sub process_file {
-  my $file = shift;
-  $file =~ s[~][%7E]g if get_variable("_tilde");
-  return 1 if $skipclean{$file};
-  push @rm_files, sanitise_uri($file);
-  my (
-    undef, undef, undef, undef, undef, undef, undef,
-    $size, undef, undef, undef, undef, $blocks
-  ) = stat($file);
-  $unnecessary_bytes += $blocks * 512;
-  return 0;
-}
 
 chdir get_variable("mirror_path") or die("apt-mirror: can't chdir to mirror");
 
