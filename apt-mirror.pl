@@ -4,11 +4,11 @@
 
 =head1 NAME
 
-apt-mirror-fork - apt sources mirroring tool
+apt-mirror-fork (apt-mirror.pl) - apt sources mirroring tool
 
 =head1 SYNOPSIS
 
-apt-mirror [configfile]
+apt-mirror.pl [configfile]
 
 =head1 DESCRIPTION
 
@@ -33,7 +33,7 @@ it for your needs.
 
 After you setup the configuration file you may run as root:
 
-    # su - apt-mirror -c apt-mirror
+    # su - apt-mirror.pl -c apt-mirror
 
 Or uncomment line in F</etc/cron.d/apt-mirror> to enable daily mirror updates.
 
@@ -71,18 +71,18 @@ deb http://user:pass@example.com:8080/debian stable main contrib non-free
 Source Mirroring:
 deb-src http://example.com/debian stable main contrib non-free
 
-=head1 ORIGINAL AUTHOR 
-
-Dmitry N. Hramtsov E<lt>hdn@nsu.ruE<gt>
-
-=head1 FORMER AUTHORS
-
-Dmitry N. Hramtsov E<lt>hdn@nsu.ruE<gt>
-Brandon Holtsclaw E<lt>me@brandonholtsclaw.comE<gt>
-
 =head1 CURRENT AUTHORS
 
 Kirk Kimmel E<lt> kimmel.k.programmer [at] gmail.com E<gt>
+
+=head1 FORMER AUTHORS
+
+Dmitry N. Hramtsov E<lt>hdn@nsu.ruE<gt> (Original author)
+Brandon Holtsclaw E<lt>me@brandonholtsclaw.comE<gt>
+
+=head1 Licensing Information
+
+This application is licensed under the GNU General Public License (GPL) Version 3. LICENSE.txt contains a copy of the GPL v3.
 
 =cut
 
