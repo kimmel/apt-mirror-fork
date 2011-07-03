@@ -1,11 +1,8 @@
 #!/usr/bin/perl
 
-# standard pragmas
 use warnings;
 use strict;
 use diagnostics;
-
-# Core modules
 use English qw( -no_match_vars );
 use Carp qw( croak );
 use File::Copy;
@@ -41,7 +38,7 @@ my %urls_to_download = ();
 
 my %stat_cache = ();
 
-# --------------------------------------------------------------------------- #
+
 my $unnecessary_bytes = 0;
 
 sub process_directory {
@@ -68,7 +65,6 @@ sub process_directory {
     return $is_needed;
 }
 
-# --------------------------------------------------------------------------- #
 # round the input number to the nearest tenth
 sub round_number {
     my $n = shift;
@@ -82,7 +78,6 @@ sub round_number {
     return "$minus$n";
 }
 
-# --------------------------------------------------------------------------- #
 sub format_bytes {
     my $bytes     = shift;
     my $bytes_out = '0';
@@ -112,7 +107,6 @@ sub format_bytes {
     return "$bytes_out $size_name";
 }
 
-# --------------------------------------------------------------------------- #
 sub get_variable {
     my $value = $config_variables{ shift @_ };
     my $count = 16;
@@ -123,7 +117,6 @@ sub get_variable {
     return $value;
 }
 
-# --------------------------------------------------------------------------- #
 sub lock_aptmirror {
     my $file = get_variable("var_path") . '/apt-mirror.lock';
     open( my $fh, '>>', $file ) || croak "Cannot write $file:$ERRNO";
@@ -132,20 +125,17 @@ sub lock_aptmirror {
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub check_lock {
     if ( -e get_variable("var_path") . "/apt-mirror.lock" ) {
         croak "apt-mirror is already running, exiting";
     }
 }
 
-# --------------------------------------------------------------------------- #
 sub unlock_aptmirror {
     unlink( get_variable("var_path") . "/apt-mirror.lock" );
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub download_urls {
     my $stage = shift;
     my @urls;
@@ -202,7 +192,6 @@ sub download_urls {
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub remove_double_slashes {
     my $token = shift;
 
@@ -214,14 +203,12 @@ sub remove_double_slashes {
     return $token;
 }
 
-# --------------------------------------------------------------------------- #
 sub add_url_to_download {
     my $url = remove_double_slashes(shift);
     $urls_to_download{$url} = shift;
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub _stat {
     my ($filename) = shift;
 
@@ -231,7 +218,6 @@ sub _stat {
     return @res;
 }
 
-# --------------------------------------------------------------------------- #
 my %skipclean = ();
 
 sub read_config {
@@ -297,7 +283,6 @@ sub read_config {
     return %clean_dir;
 }
 
-# --------------------------------------------------------------------------- #
 sub need_update {
     my $filename       = shift;
     my $size_on_server = shift;
@@ -310,7 +295,6 @@ sub need_update {
     return 1;
 }
 
-# --------------------------------------------------------------------------- #
 sub remove_spaces($) {
     my $hashref = shift;
 
@@ -322,7 +306,6 @@ sub remove_spaces($) {
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub sanitise_uri {
     my $uri = shift;
 
@@ -334,7 +317,6 @@ sub sanitise_uri {
     return $uri;
 }
 
-# --------------------------------------------------------------------------- #
 sub proceed_index_gz {
     my $uri   = shift;
     my $index = shift;
@@ -432,7 +414,6 @@ sub proceed_index_gz {
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub copy_file {
     my ( $from, $to ) = @_;
     my $dir = dirname($to);
@@ -447,12 +428,10 @@ sub copy_file {
     return;
 }
 
-# --------------------------------------------------------------------------- #
 sub process_symlink {
     return 1;    # symlinks are always needed
 }
 
-# --------------------------------------------------------------------------- #
 sub process_file {
     my $file        = shift;
     my $extra_bytes = shift;
@@ -467,11 +446,11 @@ sub process_file {
     return 0;
 }
 
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
+
+
+
 
 #handling command line arguments.
-#this needs updating -kk
 my $config_file = "/etc/apt/mirror.list";    # Default value
 if ( $_ = shift ) {
     croak "apt-mirror: invalid config file specified" unless -f $_;
