@@ -4,7 +4,7 @@ use warnings;
 use strict;
 use diagnostics;
 use English qw( -no_match_vars );
-use Carp qw( croak );
+use Carp qw( carp croak );
 use File::Copy;
 use File::Path;
 use File::Basename;
@@ -37,7 +37,6 @@ my @childrens = ();
 my %urls_to_download = ();
 
 my %stat_cache = ();
-
 
 my $unnecessary_bytes = 0;
 
@@ -156,7 +155,7 @@ sub download_urls {
         open my $urls_fh, '>', get_variable("var_path") . "/$stage-urls.$i"
             or croak
             "apt-mirror: can't write to intermediate file ($stage-urls.$i)";
-        foreach (@part) { print $urls_fh "$_\n"; }
+        foreach (@part) { print {$urls_fh} "$_\n"; }
         close $urls_fh
             or croak
             "apt-mirror: can't close intermediate file ($stage-urls.$i)";
@@ -173,7 +172,7 @@ sub download_urls {
                 get_variable("var_path") . "/$stage-urls.$i";
 
             # shouldn't reach this unless exec fails
-            croak
+            die
                 "\n\nCould not run wget, please make sure its installed and in your path\n\n";
         }
 
@@ -295,17 +294,6 @@ sub need_update {
     return 1;
 }
 
-sub remove_spaces($) {
-    my $hashref = shift;
-
-    foreach ( keys %{$hashref} ) {
-        while ( substr( $hashref->{$_}, 0, 1 ) eq ' ' ) {
-            substr( $hashref->{$_}, 0, 1 ) = '';
-        }
-    }
-    return;
-}
-
 sub sanitise_uri {
     my $uri = shift;
 
@@ -347,15 +335,19 @@ sub proceed_index_gz {
 
         $lines{"Directory:"} = "" unless defined $lines{"Directory:"};
         chomp(%lines);
-        remove_spaces( \%lines );
+
+        #stripping leading whitespace
+        foreach my $key ( keys %lines ) {
+            $lines{$key} =~ s/^\s+//;
+        }
 
         if ( exists $lines{"Filename:"} ) {    # Packages index
             $skipclean{ remove_double_slashes(
                     $path . "/" . $lines{"Filename:"} ) } = 1;
-            print $files_all remove_double_slashes(
-                $path . "/" . $lines{"Filename:"} )
+            print {$files_all}
+                remove_double_slashes( $path . "/" . $lines{"Filename:"} )
                 . "\n";
-            print $files_md5 $lines{"MD5sum:"} . "  "
+            print {$files_md5} $lines{"MD5sum:"} . "  "
                 . remove_double_slashes( $path . "/" . $lines{"Filename:"} )
                 . "\n";
             if (need_update(
@@ -364,8 +356,8 @@ sub proceed_index_gz {
                 )
                 )
             {
-                print $files_new remove_double_slashes(
-                    $uri . "/" . $lines{"Filename:"} )
+                print {$files_new}
+                    remove_double_slashes( $uri . "/" . $lines{"Filename:"} )
                     . "\n";
                 add_url_to_download( $uri . "/" . $lines{"Filename:"},
                     $lines{"Size:"} );
@@ -382,10 +374,11 @@ sub proceed_index_gz {
                     )
                     }
                     = 1;
-                print $files_all remove_double_slashes(
+                print {$files_all}
+                    remove_double_slashes(
                     $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
                     . "\n";
-                print $files_md5 $file[0] . "  "
+                print {$files_md5} $file[0] . "  "
                     . remove_double_slashes(
                     $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
                     . "\n";
@@ -395,7 +388,8 @@ sub proceed_index_gz {
                     )
                     )
                 {
-                    print $files_new remove_double_slashes(
+                    print {$files_new}
+                        remove_double_slashes(
                         $uri . "/" . $lines{"Directory:"} . "/" . $file[2] )
                         . "\n";
                     add_url_to_download(
@@ -420,7 +414,7 @@ sub copy_file {
     return unless -f $from;
     mkpath($dir) unless -d $dir;
     unless ( copy( $from, $to ) ) {
-        warn("apt-mirror: can't copy $from to $to");
+        carp "apt-mirror: can't copy $from to $to";
         return;
     }
     my ( $atime, $mtime ) = ( stat($from) )[ 8, 9 ];
@@ -445,10 +439,6 @@ sub process_file {
     $extra_bytes += $blocks * 512;
     return 0;
 }
-
-
-
-
 
 #handling command line arguments.
 my $config_file = "/etc/apt/mirror.list";    # Default value
@@ -489,7 +479,7 @@ lock_aptmirror();
 ######################################################################################
 ## Skel download
 
-my ( $url, $arch );
+my $url;
 
 foreach (@config_sources) {
     my ( $uri, $distribution, @components ) = @{$_};
@@ -663,33 +653,38 @@ else {
         scalar(@rm_dirs), " directories can be freed.\n";
     print "Run " . get_variable("cleanscript") . " for this purpose.\n\n";
 
-    print $clean_script "cd "
+    print {$clean_script} "cd "
         . get_variable("mirror_path")
         . " || exit 1\n\n";
-    print $clean_script
+    print {$clean_script}
         "echo 'Removing $total unnecessary files [$unnecessary_bytes bytes]...'\n";
     foreach (@rm_files) {
-        print $clean_script "rm -f '$_'\n";
-        print $clean_script "echo -n '[" . int( 100 * $i / $total ) . "\%]'\n"
+        print {$clean_script} "rm -f '$_'\n";
+        print {$clean_script} "echo -n '["
+            . int( 100 * $i / $total )
+            . "\%]'\n"
             unless $i % 500;
-        print $clean_script "echo -n .\n" unless $i % 10;
+        print {$clean_script} "echo -n .\n" unless $i % 10;
         $i++;
     }
-    print $clean_script "echo 'done.'\n";
-    print $clean_script "echo\n\n";
+    print {$clean_script} "echo 'done.'\n";
+    print {$clean_script} "echo\n\n";
 
     $i     = 0;
     $total = scalar @rm_dirs;
-    print $clean_script "echo 'Removing $total unnecessary directories...'\n";
+    print {$clean_script}
+        "echo 'Removing $total unnecessary directories...'\n";
     foreach (@rm_dirs) {
-        print $clean_script "rmdir '$_'\n";
-        print $clean_script "echo -n '[" . int( 100 * $i / $total ) . "\%]'\n"
+        print {$clean_script} "rmdir '$_'\n";
+        print {$clean_script} "echo -n '["
+            . int( 100 * $i / $total )
+            . "\%]'\n"
             unless $i % 50;
-        print $clean_script "echo -n .\n";
+        print {$clean_script} "echo -n .\n";
         $i++;
     }
-    print $clean_script "echo 'done.'\n";
-    print $clean_script "echo\n";
+    print {$clean_script} "echo 'done.'\n";
+    print {$clean_script} "echo\n";
 
 }
 
@@ -698,8 +693,8 @@ close $clean_script;
 if ( get_variable("run_postmirror") ) {
     print "Running the Post Mirror script ...\n";
     print "(" . get_variable("postmirror_script") . ")\n\n";
-    if ( -x get_variable("postmirror_script") ) {
-        system( get_variable("postmirror_script") );
+    if ( -x get_variable('postmirror_script') ) {
+        system( get_variable('postmirror_script') );
     }
     else {
         system( '/bin/sh ' . get_variable('postmirror_script') );
