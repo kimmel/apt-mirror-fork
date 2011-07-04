@@ -12,20 +12,20 @@ use File::Basename;
 my ( @rm_dirs, @rm_files ) = ();
 
 my %config_variables = (
-    "defaultarch" => qx(dpkg --print-installation-architecture 2>/dev/null)
+    'defaultarch' => qx(dpkg --print-installation-architecture 2>/dev/null)
         || 'i386',
-    "nthreads"          => 20,
-    "base_path"         => '/var/spool/apt-mirror',
-    "mirror_path"       => '$base_path/mirror',
-    "skel_path"         => '$base_path/skel',
-    "var_path"          => '$base_path/var',
-    "cleanscript"       => '$var_path/clean.sh',
-    "_contents"         => 1,
-    "_autoclean"        => 0,
-    "_tilde"            => 0,
-    "limit_rate"        => '100m',
-    "run_postmirror"    => 1,
-    "postmirror_script" => '$var_path/postmirror.sh'
+    'nthreads'          => 20,
+    'base_path'         => '/var/spool/apt-mirror',
+    'mirror_path'       => '$base_path/mirror',
+    'skel_path'         => '$base_path/skel',
+    'var_path'          => '$base_path/var',
+    'cleanscript'       => '$var_path/clean.sh',
+    '_contents'         => 1,
+    '_autoclean'        => 0,
+    '_tilde'            => 0,
+    'limit_rate'        => '100m',
+    'run_postmirror'    => 1,
+    'postmirror_script' => '$var_path/postmirror.sh'
 );
 
 my @config_binaries = ();
@@ -48,10 +48,10 @@ sub process_directory {
 
     return 1 if $lsc{$dir};
 
-    opendir( my $dir_h, $dir )
+    opendir my $dir_h, $dir
         or croak "apt-mirror: Cannot opendir $dir: $ERRNO";
-    foreach ( grep { !/^\.$/ && !/^\.\.$/ } readdir($dir_h) ) {
-        my $item = $dir . "/" . $_;
+    foreach ( grep { !/^\.$/ && !/^\.\.$/ } readdir $dir_h ) {
+        my $item = $dir . '/' . $_;
         $is_needed |= process_directory( $item, \%lsc )
             if -d $item && !-l $item;
         if ( -f $item ) {
@@ -69,7 +69,7 @@ sub round_number {
     my $n = shift;
     my $minus = $n < 0 ? '-' : '';
 
-    $n = abs($n);
+    $n = abs $n;
     $n = int( ( $n + .05 ) * 10 ) / 10;
     $n .= '.0' unless $n =~ /\./;
     $n .= '0' if substr( $n, ( length($n) - 1 ), 1 ) eq '.';
@@ -107,17 +107,19 @@ sub format_bytes {
 }
 
 sub get_variable {
-    my $value = $config_variables{ shift @_ };
+    my $key   = shift;
+    my $value = $config_variables{$key};
     my $count = 16;
+
     while ( $value =~ s/\$(\w+)/$config_variables{$1}/xg ) {
-        croak "apt-mirror: too many substitution while evaluating variable"
+        croak 'apt-mirror: too many substitution while evaluating variable'
             if ( $count-- ) < 0;
     }
     return $value;
 }
 
 sub lock_aptmirror {
-    my $file = get_variable("var_path") . '/apt-mirror.lock';
+    my $file = get_variable('var_path') . '/apt-mirror.lock';
     open( my $fh, '>>', $file ) || croak "Cannot write $file:$ERRNO";
     close $fh;
     utime undef, undef, $file;
@@ -125,13 +127,13 @@ sub lock_aptmirror {
 }
 
 sub check_lock {
-    if ( -e get_variable("var_path") . "/apt-mirror.lock" ) {
-        croak "apt-mirror is already running, exiting";
+    if ( -e get_variable('var_path') . '/apt-mirror.lock' ) {
+        croak 'apt-mirror is already running, exiting';
     }
 }
 
 sub unlock_aptmirror {
-    unlink( get_variable("var_path") . "/apt-mirror.lock" );
+    unlink get_variable('var_path') . '/apt-mirror.lock';
     return;
 }
 
@@ -140,36 +142,36 @@ sub download_urls {
     my @urls;
     my $i = 0;
     my $pid;
-    my $nthreads = get_variable("nthreads");
+    my $nthreads = get_variable('nthreads');
     local $OUTPUT_AUTOFLUSH = 1;
 
     @urls = @_;
     $nthreads = @urls if @urls < $nthreads;
 
-    print "Downloading "
+    print 'Downloading '
         . scalar(@urls)
         . " $stage files using $nthreads threads...\n";
 
     while ( scalar @urls ) {
-        my @part = splice( @urls, 0, int( @urls / $nthreads ) );
-        open my $urls_fh, '>', get_variable("var_path") . "/$stage-urls.$i"
+        my @part = splice @urls, 0, int( @urls / $nthreads );
+        open my $urls_fh, '>', get_variable('var_path') . "/$stage-urls.$i"
             or croak
-            "apt-mirror: can't write to intermediate file ($stage-urls.$i)";
+            "apt-mirror: cannot write to intermediate file ($stage-urls.$i)";
         foreach (@part) { print {$urls_fh} "$_\n"; }
         close $urls_fh
             or croak
-            "apt-mirror: can't close intermediate file ($stage-urls.$i)";
+            "apt-mirror: cannot close intermediate file ($stage-urls.$i)";
 
-        $pid = fork();
+        $pid = fork;
 
-        croak "apt-mirror: can't do fork in download_urls" if $pid < 0;
+        croak 'apt-mirror: cannot do fork in download_urls' if $pid < 0;
 
         if ( $pid == 0 ) {
             exec 'wget', '--no-cache',
-                '--limit-rate=' . get_variable("limit_rate"),
+                '--limit-rate=' . get_variable('limit_rate'),
                 '-t', '5', '-r', '-N', '-l', 'inf', '-o',
-                get_variable("var_path") . "/$stage-log.$i", '-i',
-                get_variable("var_path") . "/$stage-urls.$i";
+                get_variable('var_path') . "/$stage-log.$i", '-i',
+                get_variable('var_path') . "/$stage-urls.$i";
 
             # shouldn't reach this unless exec fails
             die
@@ -181,11 +183,11 @@ sub download_urls {
         $nthreads--;
     }
 
-    print "Begin time: " . localtime() . "\n[" . scalar(@childrens) . "]... ";
+    print 'Begin time: ' . localtime() . "\n[" . scalar(@childrens) . ']... ';
     while ( scalar @childrens ) {
-        my $dead = wait();
+        my $dead = wait;
         @childrens = grep { $_ != $dead } @childrens;
-        print "[" . scalar(@childrens) . "]... ";
+        print '[' . scalar(@childrens) . ']... ';
     }
     print "\nEnd time: " . localtime() . "\n\n";
     return;
@@ -197,7 +199,7 @@ sub remove_double_slashes {
     while ( $token =~ s[/\./][/]g )                { }
     while ( $token =~ s[(?<!:)//][/]g )            { }
     while ( $token =~ s[(?<!:/)/[^/]+/\.\./][/]g ) { }
-    $token =~ s/~/\%7E/g if get_variable("_tilde");
+    $token =~ s/~/\%7E/g if get_variable('_tilde');
 
     return $token;
 }
@@ -212,7 +214,7 @@ sub _stat {
     my ($filename) = shift;
 
     return @{ $stat_cache{$filename} } if exists $stat_cache{$filename};
-    my @res = stat($filename);
+    my @res = stat $filename;
     $stat_cache{$filename} = \@res;
     return @res;
 }
@@ -224,21 +226,21 @@ sub read_config {
     my %clean_dir = ();
 
     open my $config_file, '<', $cf
-        or croak "apt-mirror: can't open config file ($cf)";
+        or croak "apt-mirror: cannot open config file ($cf)";
     while (<$config_file>) {
         next if /^\s*#/;
         next unless /\S/;
         my @config_line = split;
         my $config_line = shift @config_line;
 
-        if ( $config_line eq "set" ) {
+        if ( $config_line eq 'set' ) {
             $config_variables{ $config_line[0] } = $config_line[1];
             next;
         }
 
-        if ( $config_line eq "deb" ) {
+        if ( $config_line eq 'deb' ) {
             push @config_binaries,
-                [ get_variable("defaultarch"), @config_line ];
+                [ get_variable('defaultarch'), @config_line ];
             next;
         }
 
@@ -250,23 +252,23 @@ sub read_config {
             next;
         }
 
-        if ( $config_line eq "deb-src" ) {
+        if ( $config_line eq 'deb-src' ) {
             push @config_sources, [@config_line];
             next;
         }
 
-        if ( $config_line eq "skip-clean" ) {
+        if ( $config_line eq 'skip-clean' ) {
             $config_line[0] =~ s[^(\w+)://][];
             $config_line[0] =~ s[/$][];
-            $config_line[0] =~ s[~][%7E]g if get_variable("_tilde");
+            $config_line[0] =~ s[~][%7E]g if get_variable('_tilde');
             $skipclean{ $config_line[0] } = 1;
             next;
         }
 
-        if ( $config_line eq "clean" ) {
+        if ( $config_line eq 'clean' ) {
             $config_line[0] =~ s[^(\w+)://][];
             $config_line[0] =~ s[/$][];
-            $config_line[0] =~ s[~][%7E]g if get_variable("_tilde");
+            $config_line[0] =~ s[~][%7E]g if get_variable('_tilde');
             $clean_dir{ $config_line[0] } = 1;
             next;
         }
@@ -276,8 +278,8 @@ sub read_config {
     }
     close $config_file;
 
-    croak "Please explicitly specify 'defaultarch' in mirror.list"
-        unless get_variable("defaultarch");
+    croak 'Please explicitly specify "defaultarch" in mirror.list'
+        unless get_variable('defaultarch');
 
     return %clean_dir;
 }
@@ -300,7 +302,7 @@ sub sanitise_uri {
     $uri =~ s[^(\w+)://][];
     $uri =~ s/^([^@]+)?@?// if $uri =~ /@/;
     $uri =~ s&:\d+/&/&;                       # and port information
-    $uri =~ s/~/\%7E/g if get_variable("_tilde");
+    $uri =~ s/~/\%7E/g if get_variable('_tilde');
 
     return $uri;
 }
@@ -310,90 +312,90 @@ sub proceed_index_gz {
     my $index = shift;
     my ( $path, $package, $mirror, $files ) = '';
 
-    open my $files_all, '>', get_variable("var_path") . "/ALL"
-        or croak "apt-mirror: can't write to intermediate file (ALL)";
-    open my $files_new, '>', get_variable("var_path") . "/NEW"
-        or croak "apt-mirror: can't write to intermediate file (NEW)";
-    open my $files_md5, '>', get_variable("var_path") . "/MD5"
-        or croak "apt-mirror: can't write to intermediate file (MD5)";
+    open my $files_all, '>', get_variable('var_path') . '/ALL'
+        or croak 'apt-mirror: cannot write to intermediate file (ALL)';
+    open my $files_new, '>', get_variable('var_path') . '/NEW'
+        or croak 'apt-mirror: cannot write to intermediate file (NEW)';
+    open my $files_md5, '>', get_variable('var_path') . '/MD5'
+        or croak 'apt-mirror: cannot write to intermediate file (MD5)';
 
     $path = sanitise_uri($uri);
     local $INPUT_RECORD_SEPARATOR = "\n\n";
-    $mirror = get_variable("mirror_path") . "/" . $path;
+    $mirror = get_variable('mirror_path') . '/' . $path;
 
     if ( $index =~ s/\.gz$// ) {
-        system("gunzip < $path/$index.gz > $path/$index");
+        system "gunzip < $path/$index.gz > $path/$index";
     }
 
     open my $stream, '<', "$path/$index"
-        or croak "apt-mirror: can't open index in proceed_index_gz";
+        or croak 'apt-mirror: cannot open index in proceed_index_gz';
 
     while ( $package = <$stream> ) {
         local $INPUT_RECORD_SEPARATOR = "\n";
         chomp $package;
-        my ( undef, %lines ) = split( /^([\w\-]+:)/m, $package );
+        my ( undef, %lines ) = split /^([\w\-]+:)/m, $package;
 
-        $lines{"Directory:"} = "" unless defined $lines{"Directory:"};
-        chomp(%lines);
+        $lines{'Directory:'} = q() unless defined $lines{'Directory:'};
+        chomp %lines;
 
         #stripping leading whitespace
         foreach my $key ( keys %lines ) {
             $lines{$key} =~ s/^\s+//;
         }
 
-        if ( exists $lines{"Filename:"} ) {    # Packages index
+        if ( exists $lines{'Filename:'} ) {    # Packages index
             $skipclean{ remove_double_slashes(
-                    $path . "/" . $lines{"Filename:"} ) } = 1;
+                    $path . '/' . $lines{'Filename:'} ) } = 1;
             print {$files_all}
-                remove_double_slashes( $path . "/" . $lines{"Filename:"} )
+                remove_double_slashes( $path . '/' . $lines{'Filename:'} )
                 . "\n";
-            print {$files_md5} $lines{"MD5sum:"} . "  "
-                . remove_double_slashes( $path . "/" . $lines{"Filename:"} )
+            print {$files_md5} $lines{'MD5sum:'} . q(  )
+                . remove_double_slashes( $path . '/' . $lines{'Filename:'} )
                 . "\n";
             if (need_update(
-                    $mirror . "/" . $lines{"Filename:"},
-                    $lines{"Size:"}
+                    $mirror . '/' . $lines{'Filename:'},
+                    $lines{'Size:'}
                 )
                 )
             {
                 print {$files_new}
-                    remove_double_slashes( $uri . "/" . $lines{"Filename:"} )
+                    remove_double_slashes( $uri . '/' . $lines{'Filename:'} )
                     . "\n";
-                add_url_to_download( $uri . "/" . $lines{"Filename:"},
-                    $lines{"Size:"} );
+                add_url_to_download( $uri . '/' . $lines{'Filename:'},
+                    $lines{'Size:'} );
             }
         }
         else {    # Sources index
-            foreach ( split( /\n/, $lines{"Files:"} ) ) {
+            foreach ( split /\n/, $lines{'Files:'} ) {
                 next if $_ eq '';
                 my @file = split;
-                croak "apt-mirror: invalid Sources format" if @file != 3;
+                croak 'apt-mirror: invalid Sources format' if @file != 3;
                 $skipclean{
                     remove_double_slashes(
-                        $path . "/" . $lines{"Directory:"} . "/" . $file[2]
+                        $path . '/' . $lines{'Directory:'} . '/' . $file[2]
                     )
                     }
                     = 1;
                 print {$files_all}
                     remove_double_slashes(
-                    $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
+                    $path . '/' . $lines{'Directory:'} . '/' . $file[2] )
                     . "\n";
-                print {$files_md5} $file[0] . "  "
+                print {$files_md5} $file[0] . q(  )
                     . remove_double_slashes(
-                    $path . "/" . $lines{"Directory:"} . "/" . $file[2] )
+                    $path . '/' . $lines{'Directory:'} . '/' . $file[2] )
                     . "\n";
                 if (need_update(
-                        $mirror . "/" . $lines{"Directory:"} . "/" . $file[2],
+                        $mirror . '/' . $lines{'Directory:'} . '/' . $file[2],
                         $file[1]
                     )
                     )
                 {
                     print {$files_new}
                         remove_double_slashes(
-                        $uri . "/" . $lines{"Directory:"} . "/" . $file[2] )
+                        $uri . '/' . $lines{'Directory:'} . '/' . $file[2] )
                         . "\n";
                     add_url_to_download(
-                        $uri . "/" . $lines{"Directory:"} . "/" . $file[2],
+                        $uri . '/' . $lines{'Directory:'} . '/' . $file[2],
                         $file[1] );
                 }
             }
@@ -414,11 +416,11 @@ sub copy_file {
     return unless -f $from;
     mkpath($dir) unless -d $dir;
     unless ( copy( $from, $to ) ) {
-        carp "apt-mirror: can't copy $from to $to";
+        carp "apt-mirror: cannot copy $from to $to";
         return;
     }
-    my ( $atime, $mtime ) = ( stat($from) )[ 8, 9 ];
-    utime( $atime, $mtime, $to ) or croak "apt-mirror: can't utime $to";
+    my ( $atime, $mtime ) = ( stat $from )[ 8, 9 ];
+    utime $atime, $mtime, $to or croak "apt-mirror: cannot utime $to";
     return;
 }
 
@@ -430,24 +432,24 @@ sub process_file {
     my $file        = shift;
     my $extra_bytes = shift;
 
-    $file =~ s[~][%7E]g if get_variable("_tilde");
+    $file =~ s[~][%7E]g if get_variable('_tilde');
     return 1 if $skipclean{$file};
     push @rm_files, sanitise_uri($file);
     my (undef, undef, undef, undef, undef, undef, undef,
         $size, undef, undef, undef, undef, $blocks
-    ) = stat($file);
+    ) = stat $file;
     $extra_bytes += $blocks * 512;
     return 0;
 }
 
 #handling command line arguments.
-my $config_file = "/etc/apt/mirror.list";    # Default value
+my $config_file = '/etc/apt/mirror.list';    # Default value
 if ( $_ = shift ) {
-    croak "apt-mirror: invalid config file specified" unless -f $_;
+    croak 'apt-mirror: invalid config file specified' unless -f $_;
     $config_file = $_;
 }
 
-chomp $config_variables{"defaultarch"};
+chomp $config_variables{'defaultarch'};
 
 ##############################################################################
 ## Parse config
@@ -456,23 +458,23 @@ my %clean_directory = read_config($config_file);
 
 ## Create the 3 needed directories if they don't exist yet
 my @needed_directories = (
-    get_variable("mirror_path"),
-    get_variable("skel_path"),
-    get_variable("var_path")
+    get_variable('mirror_path'),
+    get_variable('skel_path'),
+    get_variable('var_path')
 );
 foreach my $needed_directory (@needed_directories) {
     unless ( -d $needed_directory ) {
-        mkdir($needed_directory)
+        mkdir $needed_directory
             or
-            cluck("apt-mirror: can't create $needed_directory dir. $ERRNO");
+            cluck("apt-mirror: cannot create $needed_directory dir. $ERRNO");
     }
 }
 
 check_lock();
 
-local $SIG{INT}  = "unlock_aptmirror";
-local $SIG{HUP}  = "unlock_aptmirror";
-local $SIG{TERM} = "unlock_aptmirror";
+local $SIG{INT}  = 'unlock_aptmirror';
+local $SIG{HUP}  = 'unlock_aptmirror';
+local $SIG{TERM} = 'unlock_aptmirror';
 
 lock_aptmirror();
 
@@ -485,14 +487,14 @@ foreach (@config_sources) {
     my ( $uri, $distribution, @components ) = @{$_};
 
     if (@components) {
-        $url = $uri . "/dists/" . $distribution . "/";
+        $url = $uri . '/dists/' . $distribution . '/';
 
-        add_url_to_download( $url . "Release" );
-        add_url_to_download( $url . "Release.gpg" );
+        add_url_to_download( $url . 'Release' );
+        add_url_to_download( $url . 'Release.gpg' );
         foreach (@components) {
-            add_url_to_download( $url . $_ . "/source/Release" );
-            add_url_to_download( $url . $_ . "/source/Sources.gz" );
-            add_url_to_download( $url . $_ . "/source/Sources.bz2" );
+            add_url_to_download( $url . $_ . '/source/Release' );
+            add_url_to_download( $url . $_ . '/source/Sources.gz' );
+            add_url_to_download( $url . $_ . '/source/Sources.bz2' );
         }
     }
     else {
@@ -507,21 +509,21 @@ foreach (@config_binaries) {
     my ( $archi, $uri, $distribution, @components ) = @{$_};
 
     if (@components) {
-        $url = $uri . "/dists/" . $distribution . "/";
+        $url = $uri . '/dists/' . $distribution . '/';
 
-        add_url_to_download( $url . "Release" );
-        add_url_to_download( $url . "Release.gpg" );
-        if ( get_variable("_contents") ) {
-            add_url_to_download( $url . "Contents-" . $archi . ".gz" );
-            add_url_to_download( $url . "Contents-" . $archi . ".bz2" );
+        add_url_to_download( $url . 'Release' );
+        add_url_to_download( $url . 'Release.gpg' );
+        if ( get_variable('_contents') ) {
+            add_url_to_download( $url . 'Contents-' . $archi . '.gz' );
+            add_url_to_download( $url . 'Contents-' . $archi . '.bz2' );
         }
         foreach (@components) {
             add_url_to_download(
-                $url . $_ . "/binary-" . $archi . "/Release" );
+                $url . $_ . '/binary-' . $archi . '/Release' );
             add_url_to_download(
-                $url . $_ . "/binary-" . $archi . "/Packages.gz" );
+                $url . $_ . '/binary-' . $archi . '/Packages.gz' );
             add_url_to_download(
-                $url . $_ . "/binary-" . $archi . "/Packages.bz2" );
+                $url . $_ . '/binary-' . $archi . '/Packages.bz2' );
         }
     }
     else {
@@ -532,13 +534,13 @@ foreach (@config_binaries) {
     }
 }
 
-chdir get_variable("skel_path") or croak "apt-mirror: can't chdir to skel";
+chdir get_variable('skel_path') or croak 'apt-mirror: cannot chdir to skel';
 @index_urls = sort keys %urls_to_download;
-download_urls( "index", @index_urls );
+download_urls( 'index', @index_urls );
 
 foreach ( keys %urls_to_download ) {
     s[^(\w+)://][];
-    s[~][%7E]g if get_variable("_tilde");
+    s[~][%7E]g if get_variable('_tilde');
     $skipclean{$_} = 1;
     $skipclean{$_} = 1 if s[\.gz$][];
     $skipclean{$_} = 1 if s[\.bz2$][];
@@ -549,11 +551,11 @@ foreach ( keys %urls_to_download ) {
 
 %urls_to_download = ();
 
-print "Proceed indexes: [";
+print 'Proceed indexes: [';
 
 foreach (@config_sources) {
     my ( $uri, $distribution, @components ) = @{$_};
-    print "S";
+    print 'S';
     if (@components) {
         foreach my $component (@components) {
             proceed_index_gz( $uri,
@@ -567,7 +569,7 @@ foreach (@config_sources) {
 
 foreach (@config_binaries) {
     my ( $archi, $uri, $distribution, @components ) = @{$_};
-    print "P";
+    print 'P';
     if (@components) {
         foreach my $comp (@components) {
             proceed_index_gz( $uri,
@@ -587,8 +589,8 @@ print "]\n\n";
 ######################################################################################
 ## Main download
 
-chdir get_variable("mirror_path")
-    or croak "apt-mirror: can't chdir to mirror";
+chdir get_variable('mirror_path')
+    or croak 'apt-mirror: cannot chdir to mirror';
 
 my $need_bytes = 0;
 foreach ( values %urls_to_download ) {
@@ -599,49 +601,49 @@ my $size_output = format_bytes($need_bytes);
 
 print "$size_output will be downloaded into archive.\n";
 
-download_urls( "archive", sort keys %urls_to_download );
+download_urls( 'archive', sort keys %urls_to_download );
 
 ######################################################################################
 ## Copy skel to main archive
 
 foreach (@index_urls) {
-    croak "apt-mirror: invalid url in index_urls" unless s[^(\w+)://][];
+    croak 'apt-mirror: invalid url in index_urls' unless s[^(\w+)://][];
     copy_file(
-        get_variable("skel_path") . "/" . sanitise_uri("$_"),
-        get_variable("mirror_path") . "/" . sanitise_uri("$_")
+        get_variable('skel_path') . '/' . sanitise_uri("$_"),
+        get_variable('mirror_path') . '/' . sanitise_uri("$_")
     );
     copy_file(
-        get_variable("skel_path") . "/" . sanitise_uri("$_"),
-        get_variable("mirror_path") . "/" . sanitise_uri("$_")
+        get_variable('skel_path') . '/' . sanitise_uri("$_"),
+        get_variable('mirror_path') . '/' . sanitise_uri("$_")
     ) if (s/\.gz$//);
     copy_file(
-        get_variable("skel_path") . "/" . sanitise_uri("$_"),
-        get_variable("mirror_path") . "/" . sanitise_uri("$_")
+        get_variable('skel_path') . '/' . sanitise_uri("$_"),
+        get_variable('mirror_path') . '/' . sanitise_uri("$_")
     ) if (s/\.bz2$//);
 }
 
 ######################################################################################
 ## Make cleaning script
 
-chdir get_variable("mirror_path")
-    or croak "apt-mirror: can't chdir to mirror";
+chdir get_variable('mirror_path')
+    or croak 'apt-mirror: cannot chdir to mirror';
 
 foreach ( keys %clean_directory ) {
     process_directory( $_, \%skipclean ) if -d $_ && !-l $_;
 }
 
-open my $clean_script, '>', get_variable("cleanscript")
-    or croak "apt-mirror: can't open clean script file";
+open my $clean_script, '>', get_variable('cleanscript')
+    or croak 'apt-mirror: cannot open clean script file';
 
 my ( $i, $total ) = ( 0, scalar @rm_files );
 
-if ( get_variable("_autoclean") ) {
+if ( get_variable('_autoclean') ) {
 
     print format_bytes($unnecessary_bytes), "in $total files and ",
-        scalar(@rm_dirs), " directories will be freed...";
+        scalar(@rm_dirs), ' directories will be freed...';
 
-    chdir get_variable("mirror_path")
-        or croak "apt-mirror: can't chdir to mirror";
+    chdir get_variable('mirror_path')
+        or croak 'apt-mirror: cannot chdir to mirror';
 
     foreach (@rm_files) { unlink $_; }
     foreach (@rm_dirs)  { rmdir $_; }
@@ -651,16 +653,16 @@ else {
 
     print format_bytes($unnecessary_bytes), "in $total files and ",
         scalar(@rm_dirs), " directories can be freed.\n";
-    print "Run " . get_variable("cleanscript") . " for this purpose.\n\n";
+    print 'Run ' . get_variable('cleanscript') . " for this purpose.\n\n";
 
-    print {$clean_script} "cd "
-        . get_variable("mirror_path")
+    print {$clean_script} 'cd '
+        . get_variable('mirror_path')
         . " || exit 1\n\n";
     print {$clean_script}
         "echo 'Removing $total unnecessary files [$unnecessary_bytes bytes]...'\n";
     foreach (@rm_files) {
         print {$clean_script} "rm -f '$_'\n";
-        print {$clean_script} "echo -n '["
+        print {$clean_script} 'echo -n \'['
             . int( 100 * $i / $total )
             . "\%]'\n"
             unless $i % 500;
@@ -676,7 +678,7 @@ else {
         "echo 'Removing $total unnecessary directories...'\n";
     foreach (@rm_dirs) {
         print {$clean_script} "rmdir '$_'\n";
-        print {$clean_script} "echo -n '["
+        print {$clean_script} 'echo -n \'['
             . int( 100 * $i / $total )
             . "\%]'\n"
             unless $i % 50;
@@ -690,14 +692,14 @@ else {
 
 close $clean_script;
 
-if ( get_variable("run_postmirror") ) {
+if ( get_variable('run_postmirror') ) {
     print "Running the Post Mirror script ...\n";
-    print "(" . get_variable("postmirror_script") . ")\n\n";
+    print '(' . get_variable('postmirror_script') . ")\n\n";
     if ( -x get_variable('postmirror_script') ) {
-        system( get_variable('postmirror_script') );
+        system get_variable('postmirror_script');
     }
     else {
-        system( '/bin/sh ' . get_variable('postmirror_script') );
+        system '/bin/sh ' . get_variable('postmirror_script');
     }
     print
         "\nPost Mirror script has completed. See above output for any possible errors.\n\n";
@@ -715,9 +717,16 @@ __END__
 
 apt-mirror-fork (apt-mirror.pl) - apt sources mirroring tool
 
-=head1 SYNOPSIS
+=head1 VERSION
+
+=head1 USAGE
 
 apt-mirror.pl [configfile]
+
+=head1 REQUIRED ARGUMENTS
+=head1 ARGUMENTS
+
+=head1 OPTIONS
 
 =head1 DESCRIPTION
 
@@ -763,7 +772,7 @@ F</var/spool/apt-mirror/skel>
 F</var/spool/apt-mirror/var>
         Log files placed here. URLs and MD5 summs also here.
 
-=head1 CONFIGURATION EXAMPLES
+=head1  CONFIGURATION AND ENVIRONMENT
 
 The mirror.list configuration supports many options, the file is well commented explinging each option.
 here are some sample mirror configuration lines showing the various supported ways :
@@ -779,6 +788,9 @@ deb http://user:pass@example.com:8080/debian stable main contrib non-free
 
 Source Mirroring:
 deb-src http://example.com/debian stable main contrib non-free
+
+=head1 INCOMPATIBILITIES
+=head1 BUGS AND LIMITATIONS
 
 =head1 AUTHOR
 
