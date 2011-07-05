@@ -25,7 +25,7 @@ my %config_variables = (
     '_tilde'            => 0,
     'limit_rate'        => '100m',
     'run_postmirror'    => 1,
-    'postmirror_script' => '$var_path/postmirror.sh'
+    'postmirror_script' => '$var_path/postmirror.sh',
 );
 
 my @config_binaries = ();
@@ -43,17 +43,21 @@ my $unnecessary_bytes = 0;
 sub process_directory {
     my $dir             = shift;
     my $local_skipclean = shift;
-    my %lsc             = %$local_skipclean;
+    my %lsc             = %{$local_skipclean};
     my $is_needed       = 0;
 
-    return 1 if $lsc{$dir};
+    if ( $lsc{$dir} ) {
+        return 1;
+    }
 
     opendir my $dir_h, $dir
         or croak "apt-mirror: Cannot opendir $dir: $ERRNO";
-    foreach ( grep { !/^\.$/ && !/^\.\.$/ } readdir $dir_h ) {
+    foreach ( grep { !/^[.]$/xs && !/^[.][.]$/xs } readdir $dir_h ) {
         my $item = $dir . '/' . $_;
-        $is_needed |= process_directory( $item, \%lsc )
-            if -d $item && !-l $item;
+
+        if ( -d $item && !-l $item ) {
+            $is_needed |= process_directory( $item, \%lsc );
+        }
         if ( -f $item ) {
             $is_needed |= process_file( $item, \$unnecessary_bytes );
         }
@@ -71,9 +75,9 @@ sub round_number {
 
     $n = abs $n;
     $n = int( ( $n + .05 ) * 10 ) / 10;
-    $n .= '.0' unless $n =~ /\./;
+    $n .= '.0' unless $n =~ /[.]/xms;
     $n .= '0' if substr( $n, ( length($n) - 1 ), 1 ) eq '.';
-    chop $n if $n =~ /\.\d\d0$/;
+    chop $n if $n =~ /[.]\d\d0$/xs;
     return "$minus$n";
 }
 
@@ -111,7 +115,7 @@ sub get_variable {
     my $value = $config_variables{$key};
     my $count = 16;
 
-    while ( $value =~ s/\$(\w+)/$config_variables{$1}/xg ) {
+    while ( $value =~ s/\$(\w+)/$config_variables{$1}/gxs ) {
         croak 'apt-mirror: too many substitution while evaluating variable'
             if ( $count-- ) < 0;
     }
@@ -139,13 +143,12 @@ sub unlock_aptmirror {
 
 sub download_urls {
     my $stage = shift;
-    my @urls;
-    my $i = 0;
+    my @urls  = @_;
+    my $i     = 0;
     my $pid;
     my $nthreads = get_variable('nthreads');
     local $OUTPUT_AUTOFLUSH = 1;
 
-    @urls = @_;
     $nthreads = @urls if @urls < $nthreads;
 
     print 'Downloading '
@@ -196,10 +199,10 @@ sub download_urls {
 sub remove_double_slashes {
     my $token = shift;
 
-    while ( $token =~ s[/\./][/]g )                { }
-    while ( $token =~ s[(?<!:)//][/]g )            { }
-    while ( $token =~ s[(?<!:/)/[^/]+/\.\./][/]g ) { }
-    $token =~ s/~/\%7E/g if get_variable('_tilde');
+    while ( $token =~ s{/[.]/}{/}gxms )                { }
+    while ( $token =~ s{(?<!:)//}{/}gxms )             { }
+    while ( $token =~ s{(?<!:/)/[^/]+/[.][.]/}{/}gxs ) { }
+    $token =~ s/~/\%7E/gxms if get_variable('_tilde');
 
     return $token;
 }
@@ -228,7 +231,7 @@ sub read_config {
     open my $config_file, '<', $cf
         or croak "apt-mirror: cannot open config file ($cf)";
     while (<$config_file>) {
-        next if /^\s*#/;
+        next if /^\s*#/s;
         next unless /\S/;
         my @config_line = split;
         my $config_line = shift @config_line;
@@ -244,8 +247,9 @@ sub read_config {
             next;
         }
 
-        if ( $config_line
-            =~ /deb-(alpha|amd64|armel|arm|hppa|hurd-i386|i386|ia64|lpia|m68k|mipsel|mips|powerpc|s390|sh|sparc)/
+        if ($config_line =~ m{deb-(alpha | amd64 | armel | arm | hppa
+              | hurd-i386 | i386 | ia64 | lpia | m68k | mipsel | mips | powerpc
+              | s390 | sh | sparc)}xs
             )
         {
             push @config_binaries, [ $1, @config_line ];
@@ -258,17 +262,17 @@ sub read_config {
         }
 
         if ( $config_line eq 'skip-clean' ) {
-            $config_line[0] =~ s[^(\w+)://][];
-            $config_line[0] =~ s[/$][];
-            $config_line[0] =~ s[~][%7E]g if get_variable('_tilde');
+            $config_line[0] =~ s{^(\w+)://}{}xs;
+            $config_line[0] =~ s{/$}{}xms;
+            $config_line[0] =~ s{~}{%7E}gxms if get_variable('_tilde');
             $skipclean{ $config_line[0] } = 1;
             next;
         }
 
         if ( $config_line eq 'clean' ) {
-            $config_line[0] =~ s[^(\w+)://][];
-            $config_line[0] =~ s[/$][];
-            $config_line[0] =~ s[~][%7E]g if get_variable('_tilde');
+            $config_line[0] =~ s{^(\w+)://}{}xs;
+            $config_line[0] =~ s{/$}{}xms;
+            $config_line[0] =~ s{~}{%7E}gxms if get_variable('_tilde');
             $clean_dir{ $config_line[0] } = 1;
             next;
         }
@@ -299,10 +303,10 @@ sub need_update {
 sub sanitise_uri {
     my $uri = shift;
 
-    $uri =~ s[^(\w+)://][];
-    $uri =~ s/^([^@]+)?@?// if $uri =~ /@/;
-    $uri =~ s&:\d+/&/&;                       # and port information
-    $uri =~ s/~/\%7E/g if get_variable('_tilde');
+    $uri =~ s{^(\w+)://}{}xs;
+    $uri =~ s/^([^@]+)?@?//xs if $uri =~ /@/xms;
+    $uri =~ s{:\d+/}{/}xms;                     # and port information
+    $uri =~ s/~/\%7E/gxms if get_variable('_tilde');
 
     return $uri;
 }
@@ -323,7 +327,7 @@ sub proceed_index_gz {
     local $INPUT_RECORD_SEPARATOR = "\n\n";
     $mirror = get_variable('mirror_path') . '/' . $path;
 
-    if ( $index =~ s/\.gz$// ) {
+    if ( $index =~ s/[.]gz$//xms ) {
         system "gunzip < $path/$index.gz > $path/$index";
     }
 
@@ -333,14 +337,13 @@ sub proceed_index_gz {
     while ( $package = <$stream> ) {
         local $INPUT_RECORD_SEPARATOR = "\n";
         chomp $package;
-        my ( undef, %lines ) = split /^([\w\-]+:)/m, $package;
+        my ( undef, %lines ) = split /^([\w\-]+:)/xms, $package;
 
         $lines{'Directory:'} = q() unless defined $lines{'Directory:'};
         chomp %lines;
 
-        #stripping leading whitespace
         foreach my $key ( keys %lines ) {
-            $lines{$key} =~ s/^\s+//;
+            $lines{$key} =~ s/^\s+//xms;
         }
 
         if ( exists $lines{'Filename:'} ) {    # Packages index
@@ -366,7 +369,7 @@ sub proceed_index_gz {
             }
         }
         else {    # Sources index
-            foreach ( split /\n/, $lines{'Files:'} ) {
+            foreach ( split /\n/xms, $lines{'Files:'} ) {
                 next if $_ eq '';
                 my @file = split;
                 croak 'apt-mirror: invalid Sources format' if @file != 3;
@@ -432,7 +435,7 @@ sub process_file {
     my $file        = shift;
     my $extra_bytes = shift;
 
-    $file =~ s[~][%7E]g if get_variable('_tilde');
+    $file =~ s{~}{%7E}gxms if get_variable('_tilde');
     return 1 if $skipclean{$file};
     push @rm_files, sanitise_uri($file);
     my (undef, undef, undef, undef, undef, undef, undef,
@@ -442,6 +445,7 @@ sub process_file {
     return 0;
 }
 
+##############################################################################
 #handling command line arguments.
 my $config_file = '/etc/apt/mirror.list';    # Default value
 if ( $_ = shift ) {
@@ -451,10 +455,11 @@ if ( $_ = shift ) {
 
 chomp $config_variables{'defaultarch'};
 
-##############################################################################
-## Parse config
-
 my %clean_directory = read_config($config_file);
+
+use Data::Dumper;
+print Dumper %clean_directory;
+exit;
 
 ## Create the 3 needed directories if they don't exist yet
 my @needed_directories = (
@@ -539,11 +544,11 @@ chdir get_variable('skel_path') or croak 'apt-mirror: cannot chdir to skel';
 download_urls( 'index', @index_urls );
 
 foreach ( keys %urls_to_download ) {
-    s[^(\w+)://][];
-    s[~][%7E]g if get_variable('_tilde');
+    s{^(\w+)://}{}xms;
+    s{~}{%7E}gxms if get_variable('_tilde');
     $skipclean{$_} = 1;
-    $skipclean{$_} = 1 if s[\.gz$][];
-    $skipclean{$_} = 1 if s[\.bz2$][];
+    $skipclean{$_} = 1 if s/[.]gz$//xms;
+    $skipclean{$_} = 1 if s/[.]bz2$//xms;
 }
 
 ######################################################################################
@@ -607,19 +612,23 @@ download_urls( 'archive', sort keys %urls_to_download );
 ## Copy skel to main archive
 
 foreach (@index_urls) {
-    croak 'apt-mirror: invalid url in index_urls' unless s[^(\w+)://][];
+    croak 'apt-mirror: invalid url in index_urls' unless s{^(\w+)://}{}xms;
     copy_file(
         get_variable('skel_path') . '/' . sanitise_uri("$_"),
         get_variable('mirror_path') . '/' . sanitise_uri("$_")
     );
-    copy_file(
-        get_variable('skel_path') . '/' . sanitise_uri("$_"),
-        get_variable('mirror_path') . '/' . sanitise_uri("$_")
-    ) if (s/\.gz$//);
-    copy_file(
-        get_variable('skel_path') . '/' . sanitise_uri("$_"),
-        get_variable('mirror_path') . '/' . sanitise_uri("$_")
-    ) if (s/\.bz2$//);
+    if (s/[.]gz$//xms) {
+        copy_file(
+            get_variable('skel_path') . '/' . sanitise_uri("$_"),
+            get_variable('mirror_path') . '/' . sanitise_uri("$_")
+        );
+    }
+    if (s/[.]bz2$//xms) {
+        copy_file(
+            get_variable('skel_path') . '/' . sanitise_uri("$_"),
+            get_variable('mirror_path') . '/' . sanitise_uri("$_")
+        );
+    }
 }
 
 ######################################################################################
