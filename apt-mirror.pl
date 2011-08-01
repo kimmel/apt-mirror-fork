@@ -4,12 +4,12 @@ use warnings;
 use strict;
 use diagnostics;
 use English qw( -no_match_vars );
+use Getopt::Long qw( GetOptions );
 use Carp qw( carp croak );
 use File::Copy;
 use File::Path;
 use File::Basename;
-
-my ( @rm_dirs, @rm_files ) = ();
+use Pod::Usage qw( pod2usage );
 
 my %config_variables = (
     'defaultarch' => qx(dpkg --print-installation-architecture 2>/dev/null)
@@ -40,11 +40,12 @@ my %stat_cache = ();
 
 my $unnecessary_bytes = 0;
 
+my @rm_dirs = ();
+
 sub process_directory {
-    my $dir             = shift;
-    my $local_skipclean = shift;
-    my %lsc             = %{$local_skipclean};
-    my $is_needed       = 0;
+    my $dir       = shift;
+    my %lsc       = %{ (shift) };
+    my $is_needed = 0;
 
     if ( $lsc{$dir} ) {
         return 1;
@@ -249,7 +250,7 @@ sub read_config {
 
         if ($config_line =~ m{deb-(alpha | amd64 | armel | arm | hppa
               | hurd-i386 | i386 | ia64 | lpia | m68k | mipsel | mips | powerpc
-              | s390 | sh | sparc)}xs
+              | s390 | sh | sparc)}xms
             )
         {
             push @config_binaries, [ $1, @config_line ];
@@ -305,7 +306,7 @@ sub sanitise_uri {
 
     $uri =~ s{^(\w+)://}{}xs;
     $uri =~ s/^([^@]+)?@?//xs if $uri =~ /@/xms;
-    $uri =~ s{:\d+/}{/}xms;                     # and port information
+    $uri =~ s{:\d+/}{/}xms;                        # and port information
     $uri =~ s/~/\%7E/gxms if get_variable('_tilde');
 
     return $uri;
@@ -431,6 +432,8 @@ sub process_symlink {
     return 1;    # symlinks are always needed
 }
 
+my @rm_files = ();
+
 sub process_file {
     my $file        = shift;
     my $extra_bytes = shift;
@@ -447,19 +450,35 @@ sub process_file {
 
 ##############################################################################
 #handling command line arguments.
-my $config_file = '/etc/apt/mirror.list';    # Default value
-if ( $_ = shift ) {
-    croak 'apt-mirror: invalid config file specified' unless -f $_;
-    $config_file = $_;
+
+my $cf = q();
+
+GetOptions(
+    'config|c=s' => \$cf,
+    'help|?'     => sub { pod2usage( -verbose => 1 ) },
+    'man'        => sub { pod2usage( -verbose => 2 ) },
+    'usage'      => sub { pod2usage( -verbose => 0 ) },
+
+    #'version'    => sub { exit 1; },
+);
+
+my $config_file = '/etc/apt/mirror.list';
+if ( $cf ne q() ) {
+    if ( -f $cf ) {
+        $config_file = $cf;
+    }
+    else {
+        croak "apt-mirror: invalid config file specified $cf\n";
+    }
 }
 
 chomp $config_variables{'defaultarch'};
 
-my %clean_directory = read_config($config_file);
+#use Data::Dumper::Names;
+#print Dumper(%config_variables);
+#die;
 
-use Data::Dumper;
-print Dumper %clean_directory;
-exit;
+my %clean_directory = read_config($config_file);
 
 ## Create the 3 needed directories if they don't exist yet
 my @needed_directories = (
@@ -470,8 +489,8 @@ my @needed_directories = (
 foreach my $needed_directory (@needed_directories) {
     unless ( -d $needed_directory ) {
         mkdir $needed_directory
-            or
-            cluck("apt-mirror: cannot create $needed_directory dir. $ERRNO");
+            or croak
+            "apt-mirror: cannot create $needed_directory dir. $ERRNO";
     }
 }
 
