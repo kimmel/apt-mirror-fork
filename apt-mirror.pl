@@ -12,7 +12,7 @@ use File::Basename;
 use Pod::Usage qw( pod2usage );
 
 my %config_variables = (
-    'defaultarch' => qx(dpkg --print-installation-architecture 2>/dev/null)
+    'defaultarch' => qx(dpkg --print-architecture 2>/dev/null)
         || 'i386',
     'nthreads'          => 20,
     'base_path'         => '/var/spool/apt-mirror',
